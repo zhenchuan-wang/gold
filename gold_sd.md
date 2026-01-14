@@ -238,3 +238,110 @@ sequenceDiagram
 
 ### 总结
 这个设计方案全面覆盖了系统设计面试的要点：类结构清晰、权衡分析合理、可扩展性高、并发处理稳健、缓存策略有效。在面试中，您可以基于此框架展开讨论，强调AI组件（如推荐模型）和A/B测试集成。记得使用白板绘制图表，并解释关键决策（如选择NoSQL for scalability）。祝您面试顺利！
+
+
+```mermaid
+sequenceDiagram
+    participant App as iOS App
+    participant API as API Gateway
+    participant Rec as Recommendation Service
+    participant FS as Feature Store (Redis)
+    participant Model as Model Server
+    participant Int as Interaction Service
+    participant Kafka as Kafka/PubSub
+    participant Ord as Order Service
+    participant Pay as Payment Provider
+
+    %% 获取推荐
+    App->>API: GET /v1/recommendations/golden-hour?user_id=U
+    API->>Rec: request(user_id=U)
+    Rec->>FS: getUserProfile(U)
+    FS-->>Rec: UserProfile/Embedding
+    Rec->>FS: getCandidateProducts()
+    FS-->>Rec: Candidate Products
+    Rec->>Model: score(user_embedding, products)
+    Model-->>Rec: scores
+    Rec-->>API: ranked product list
+    API-->>App: recommendations (feed)
+
+    %% 用户滑动与点击
+    App->>API: POST /v1/interactions (swipe_right on P1)
+    API->>Int: record(U, P1, swipe_right)
+    Int->>Kafka: publish event
+
+    %% 流式更新（异步）
+    Kafka-->>FS: updateUserEmbedding(U) (via stream processor)
+
+    %% 用户下单
+    App->>API: POST /v1/orders (cart with P1)
+    API->>Ord: createOrder(U, [P1])
+    Ord->>Pay: charge(payment_info, amount)
+    Pay-->>Ord: success
+    Ord-->>API: order_confirmed
+    API-->>App: order_success
+
+    %% 购买事件也记录为交互
+    Ord->>Int: record(U, P1, purchase)
+    Int->>Kafka: publish purchase event
+```
+
+```mermaid
+graph TD
+    %% ---------- Client layer ----------
+    subgraph Client
+        A[iOS App (React Native)]
+    end
+
+    %% ---------- Edge layer ----------
+    subgraph Edge
+        B[API Gateway]
+        C[Auth & A/B Router]
+    end
+
+    %% ---------- Recommendation core ----------
+    subgraph Recommendation_Core
+        D[Recommendation Service]
+        G[(Feature Store (Redis))]
+        H[Model Server]
+        I[Catalog Service]
+    end
+
+    %% ---------- Interactions & training ----------
+    subgraph Interactions_and_Training
+        E[Interaction Service]
+        K[Kafka / PubSub]
+        L[Streaming Processor]
+        J[(BigQuery / Data Lake)]
+        M[Training Pipeline]
+    end
+
+    %% ---------- Golden Hour orchestration ----------
+    subgraph Golden_Hour
+        N[Golden Hour Orchestrator]
+    end
+
+    %% ---------- External partners ----------
+    subgraph External_Partners
+        O[Brands / Retailers APIs]
+    end
+
+    %% ---------- Edges (connections) ----------
+    A -->|HTTPS| B
+    B --> C
+    C --> D
+    C --> E
+    D --> G
+    D --> H
+    D --> I
+    G --> J
+    E --> K
+    K --> L
+    L --> G
+    L --> J
+    J --> M
+    M --> H
+    N --> D
+    N --> I
+    N --> G
+    I --> O
+```
